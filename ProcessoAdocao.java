@@ -1,11 +1,9 @@
-
 import java.time.LocalDate;
 
 public class ProcessoAdocao {
     public static final String STATUS_EM_ANALISE = "EM_ANALISE";
     public static final String STATUS_APROVADO = "APROVADO";
     public static final String STATUS_RECUSADO = "RECUSADO";
-   
 
     private int id;
     private String cpfAdotante;
@@ -40,44 +38,59 @@ public class ProcessoAdocao {
         return status;
     }
 
+    public String getStatusFormatado() {
+        if (STATUS_EM_ANALISE.equals(this.status)) {
+            return "Em análise";
+        } else if (STATUS_APROVADO.equals(this.status)) {
+            return "Aprovado";
+        } else if (STATUS_RECUSADO.equals(this.status)) {
+            return "Recusado";
+        }
+        return this.status;
+    }
+
     public void aprovar() {
-        if(this.status.equals(STATUS_APROVADO) || this.status.equals(STATUS_RECUSADO)){
-           System.out.println("Erro: este processo já foi finalizado.");
-           return;
+        if (!isEmAnalise()) {
+            System.out.println("Erro: este processo já foi finalizado.");
+            return;
         }
         this.status = STATUS_APROVADO;
-        
     }
 
     public void recusar() {
-        if(this.status.equals(STATUS_APROVADO) || this.status.equals(STATUS_RECUSADO)){
-           System.out.println("Erro: este processo já foi finalizado.");
-           return;
+        if (!isEmAnalise()) {
+            System.out.println("Erro: este processo já foi finalizado.");
+            return;
         }
         this.status = STATUS_RECUSADO;
-      
+    }
+
+    public boolean isEmAnalise() {
+        return STATUS_EM_ANALISE.equals(this.status);
     }
 
     public boolean isAprovado() {
-      return STATUS_APROVADO.equals(this.status);
+        return STATUS_APROVADO.equals(this.status);
     }
 
     public boolean isRecusado() {
         return STATUS_RECUSADO.equals(this.status);
     }
+
     public static boolean isCpfValido(String cpfAdotante) {
-        if(cpfAdotante == null || cpfAdotante.length() != 11){
+        if (cpfAdotante == null || cpfAdotante.length() != 11) {
             return false;
         }
-        for(int i = 0; i < cpfAdotante.length(); i++) {
-            if(!Character.isDigit(cpfAdotante.charAt(i))){
+        for (int i = 0; i < cpfAdotante.length(); i++) {
+            if (!Character.isDigit(cpfAdotante.charAt(i))) {
                 return false;
             }
         }
         return true;
     }
+
     @Override
-    public String toString(){
+    public String toString() {
         return "ProcessoAdocao [" +
                 "id=" + id +
                 ", cpfAdotante='" + cpfAdotante + '\'' +
@@ -85,5 +98,4 @@ public class ProcessoAdocao {
                 ", dataPedido=" + dataPedido +
                 ", status='" + status + '\'' + "]";
     }
-
 }
