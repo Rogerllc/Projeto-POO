@@ -24,7 +24,6 @@ public class Veterinario {
         this.senha = senha;
     }
 
-    // Formato aceito: CRMV-UF número (ex.: CRMV-RN 1234)
     public static boolean isCrmvValido(String crmv) {
         return crmv != null && crmv.matches("CRMV-[A-Z]{2} \\d{1,6}");
     }
@@ -45,16 +44,13 @@ public class Veterinario {
         return this.crmv.equals(crm) && this.senha.equals(senha);
     }
 
-    // Cria uma consulta para o animal. O prontuário é 1:1 com o animal,
-    // então idProntuario = id do animal.
     public ConsultaVeterinaria realizarConsulta(Animal a) {
         if (a == null) {
             throw new IllegalArgumentException("O animal não pode ser nulo.");
         }
         return new ConsultaVeterinaria(proximoIdConsulta++, a.getId(), crmv);
     }
-
-    // Só o veterinário que realizou a consulta pode prescrever nela
+    
     public void prescrever(ConsultaVeterinaria c, String texto) {
         if (c == null) {
             throw new IllegalArgumentException("A consulta não pode ser nula.");
