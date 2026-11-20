@@ -61,7 +61,6 @@ public class ConsultaVeterinaria {
         this.prescricao = prescricao;
     }
 
-    // Confirma o registro da consulta (exige diagnóstico preenchido)
     public void registrar() {
         if (diagnostico.isBlank()) {
             System.out.println("Erro: informe o diagnóstico antes de registrar a consulta.");
