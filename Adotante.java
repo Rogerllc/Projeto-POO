@@ -1,76 +1,70 @@
-
-import java.util.ArrayList;
-
 public class Adotante {
+    private String cpf;
+    private String nome;
+    private String endereco;
+    private boolean aprovado;
 
-    private ArrayList<ProcessoAdocao> processos;
-
-    public Adotante() {
-        this.processos = new ArrayList<>();
+    public Adotante(String cpf, String nome, String endereco) {
+        this.cpf = cpf;
+        this.nome = nome;
+        this.endereco = endereco;
+        this.aprovado = avaliarPerfil();
     }
 
-    public void cadastrarProcesso(ProcessoAdocao processo) {
-        if (processo == null) {
-            throw new IllegalArgumentException("O processo de adoção não pode ser nulo.");
+    public boolean avaliarPerfil() {
+
+        if (this.cpf == null || this.nome == null || this.endereco == null || this.endereco.trim().isEmpty()) {
+            this.aprovado = false;
+            return false;
         }
 
-        processos.add(processo);
-        System.out.println("Processo de adoção cadastrado com sucesso!");
+        if (!this.cpf.matches("\\d{11}")) {
+            this.aprovado = false;
+            return false;
+        }
+
+        if (this.nome.trim().isEmpty() || this.nome.matches(".*\\d.*")) {
+            this.aprovado = false;
+            return false;
+        }
+
+        this.aprovado = true;
+        return true;
     }
 
-    public ProcessoAdocao buscarProcesso(int id) {
-        for (ProcessoAdocao processo : processos) {
-            if (processo.getId() == id) {
-                return processo;
-            }
-        }
-
-        return null;
+    public String getCpf() {
+        return this.cpf;
     }
 
-    public void aprovarProcesso(int id) {
-        ProcessoAdocao processo = buscarProcesso(id);
-
-        if (processo == null) {
-            System.out.println("Erro: processo de adoção não encontrado.");
-            return;
-        }
-
-        if (!processo.isEmAnalise()) {
-            System.out.println("Erro: este processo já foi finalizado.");
-            return;
-        }
-
-        processo.aprovar();
-        System.out.println("Processo de adoção aprovado!");
+    public void setCpf(String cpf) {
+        this.cpf = cpf;
+        this.avaliarPerfil();
     }
 
-    public void recusarProcesso(int id) {
-        ProcessoAdocao processo = buscarProcesso(id);
-
-        if (processo == null) {
-            System.out.println("Erro: processo de adoção não encontrado.");
-            return;
-        }
-
-        if (!processo.isEmAnalise()) {
-            System.out.println("Erro: este processo já foi finalizado.");
-            return;
-        }
-
-        processo.recusar();
-        System.out.println("Processo de adoção recusado!");
+    public String getNome() {
+        return this.nome;
     }
 
-    public void listarProcessos() {
-        if (processos.isEmpty()) {
-            System.out.println("Não existem processos de adoção cadastrados.");
-            return;
-        }
-
-        for (ProcessoAdocao processo : processos) {
-            System.out.println(processo);
-        }
+    public void setNome(String nome) {
+        this.nome = nome;
+        this.avaliarPerfil();
     }
 
+    public String getEndereco() {
+        return this.endereco;
+    }
+
+    public void setEndereco(String endereco) {
+        this.endereco = endereco;
+        this.avaliarPerfil();
+    }
+
+    public boolean isAprovado() {
+        return this.aprovado;
+    }
+
+    @Override
+    public String toString() {
+        return "Adotante: " + this.nome + " | CPF: " + this.cpf + " | Aprovado: " + this.aprovado;
+    }
 }
