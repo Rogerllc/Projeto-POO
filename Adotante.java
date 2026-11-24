@@ -2,17 +2,22 @@ public class Adotante {
     private String cpf;
     private String nome;
     private String endereco;
+    private String senha;
     private boolean aprovado;
 
-    public Adotante(String cpf, String nome, String endereco) {
+    public Adotante(String cpf, String nome, String endereco, String senha) {
         this.cpf = cpf;
         this.nome = nome;
         this.endereco = endereco;
+        this.senha = senha;
         this.aprovado = avaliarPerfil();
     }
 
-    public boolean avaliarPerfil() {
+    public Adotante(String cpf, String nome, String endereco) {
+        this(cpf, nome, endereco, "");
+    }
 
+    public boolean avaliarPerfil() {
         if (this.cpf == null || this.nome == null || this.endereco == null || this.endereco.trim().isEmpty()) {
             this.aprovado = false;
             return false;
@@ -30,6 +35,13 @@ public class Adotante {
 
         this.aprovado = true;
         return true;
+    }
+
+    public boolean login(String cpfDigitado, String senhaDigitada) {
+        if (cpfDigitado == null || senhaDigitada == null || this.senha == null || this.senha.isEmpty()) {
+            return false;
+        }
+        return this.cpf.equals(cpfDigitado) && this.senha.equals(senhaDigitada);
     }
 
     public String getCpf() {
@@ -57,6 +69,14 @@ public class Adotante {
     public void setEndereco(String endereco) {
         this.endereco = endereco;
         this.avaliarPerfil();
+    }
+
+    public String getSenha() {
+        return this.senha;
+    }
+
+    public void setSenha(String senha) {
+        this.senha = senha;
     }
 
     public boolean isAprovado() {
