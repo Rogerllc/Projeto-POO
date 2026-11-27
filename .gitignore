@@ -1,0 +1,6 @@
+out/
+*.class
+sistema.db
+sistema.db-journal
+sistema.db-wal
+sistema.db-shm

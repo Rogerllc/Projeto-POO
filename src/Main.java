@@ -1,7 +1,8 @@
+import database.Banco;
+import models.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.time.format.DateTimeFormatter;
-import java.util.Collections;
 import java.util.List;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -16,21 +17,7 @@ public class Main extends JFrame {
     private static final Color VERMELHO = new Color(185, 28, 28);
     private static final DateTimeFormatter DATA_BR = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
-    static class ResponsavelOng {
-        String email, nome, cargo, senha;
-        ResponsavelOng(String email, String nome, String cargo, String senha) {
-            this.email = email; this.nome = nome; this.cargo = cargo; this.senha = senha;
-        }
-        boolean login(String e, String s) { return email.equalsIgnoreCase(e) && senha.equals(s); }
-    }
-
-    static class AvaliacaoPerfil {
-        boolean espaco, tempo, familia;
-        String autorizacao;
-        AvaliacaoPerfil(boolean espaco, boolean tempo, String autorizacao, boolean familia) {
-            this.espaco = espaco; this.tempo = tempo; this.autorizacao = autorizacao; this.familia = familia;
-        }
-    }
+    private final Banco db;
 
     private ResponsavelOng ongLogada = null;
     private Veterinario vetLogado = null;
@@ -40,6 +27,11 @@ public class Main extends JFrame {
     private final JPanel raiz = new JPanel(new BorderLayout());
 
     public Main() {
+        db = new Banco();
+        criarTabelas(db);
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) { db.desconectar(); }
+        });
         setTitle("PatinhasOng - Gestão e Adoção de Animais");
         setSize(1080, 720);
         setMinimumSize(new Dimension(920, 600));
@@ -47,6 +39,18 @@ public class Main extends JFrame {
         setLocationRelativeTo(null);
         add(raiz);
         atualizarTela();
+    }
+
+    public static void criarTabelas(Banco db) {
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS responsaveis (email TEXT PRIMARY KEY COLLATE NOCASE, nome TEXT NOT NULL, cargo TEXT NOT NULL, senha TEXT NOT NULL)");
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS veterinarios (crmv TEXT PRIMARY KEY, nome TEXT NOT NULL, especialidade TEXT NOT NULL, senha TEXT NOT NULL)");
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS adotantes (cpf TEXT PRIMARY KEY, nome TEXT NOT NULL, endereco TEXT NOT NULL, senha TEXT NOT NULL)");
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS animais (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, especie TEXT NOT NULL, idade INTEGER NOT NULL CHECK(idade >= 0), status TEXT NOT NULL DEFAULT 'DISPONIVEL' CHECK(status IN ('DISPONIVEL','EM_PROCESSO','ADOTADO')))");
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS prontuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, id_animal INTEGER NOT NULL UNIQUE REFERENCES animais(id) ON DELETE CASCADE)");
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS vacinas (id INTEGER PRIMARY KEY AUTOINCREMENT, id_prontuario INTEGER NOT NULL REFERENCES prontuarios(id) ON DELETE CASCADE, nome TEXT NOT NULL)");
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS consultas (id INTEGER PRIMARY KEY AUTOINCREMENT, id_prontuario INTEGER NOT NULL REFERENCES prontuarios(id) ON DELETE CASCADE, crmv TEXT NOT NULL REFERENCES veterinarios(crmv), data TEXT NOT NULL, diagnostico TEXT NOT NULL, prescricao TEXT NOT NULL)");
+        db.queryUpdate("CREATE TABLE IF NOT EXISTS processos (id INTEGER PRIMARY KEY AUTOINCREMENT, id_animal INTEGER NOT NULL REFERENCES animais(id) ON DELETE CASCADE, cpf TEXT NOT NULL REFERENCES adotantes(cpf), data TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'EM_ANALISE' CHECK(status IN ('EM_ANALISE','APROVADO','RECUSADO')), espaco INTEGER NOT NULL, tempo INTEGER NOT NULL, autorizacao TEXT NOT NULL, familia INTEGER NOT NULL)");
+        db.queryUpdate("CREATE UNIQUE INDEX IF NOT EXISTS processo_ativo ON processos(id_animal) WHERE status IN ('EM_ANALISE', 'APROVADO')");
     }
 
     private boolean isEquipeOng() { return ongLogada != null || vetLogado != null; }
@@ -137,15 +141,22 @@ public class Main extends JFrame {
 
     private void autenticar(boolean equipe, String user, String senha) {
         if (equipe) {
-            ResponsavelOng r = autenticarOngBanco(user, senha);
-            if (r != null) { ongLogada = r; atualizarTela(); return; }
-            Veterinario v = autenticarVetBanco(user, senha);
-            if (v != null) { vetLogado = v; atualizarTela(); return; }
+            if (Veterinario.isLoginCrmv(user)) {
+                if (!Veterinario.isCrmvValido(Veterinario.normalizarCrmv(user))) {
+                    JOptionPane.showMessageDialog(this, "Informe o CRMV completo, por exemplo: CRMV-RN 1234.");
+                    return;
+                }
+                Veterinario v = autenticarVetBanco(user, senha);
+                if (v != null) { ongLogada = null; vetLogado = v; atualizarTela(); return; }
+            } else {
+                ResponsavelOng r = autenticarOngBanco(user, senha);
+                if (r != null) { vetLogado = null; ongLogada = r; atualizarTela(); return; }
+            }
         } else {
             Adotante a = autenticarAdotanteBanco(user, senha);
             if (a != null) { adotanteLogado = a; atualizarTela(); return; }
         }
-        JOptionPane.showMessageDialog(this, "Credenciais inválidas ou banco SQLite ainda não conectado.", "Erro", JOptionPane.ERROR_MESSAGE);
+        JOptionPane.showMessageDialog(this, "Credenciais inválidas.", "Erro", JOptionPane.ERROR_MESSAGE);
     }
 
     private JPanel criarBarraTopo() {
@@ -174,7 +185,7 @@ public class Main extends JFrame {
 
         JPanel dir = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         dir.setOpaque(false);
-        String usuario = ongLogada != null ? ongLogada.nome + " (" + ongLogada.cargo + ")"
+        String usuario = ongLogada != null ? ongLogada.getNome() + " (" + ongLogada.getCargo() + ")"
                 : (vetLogado != null ? vetLogado.getNome() + " (" + vetLogado.getCrmv() + ")" : adotanteLogado.getNome() + " (Adotante)");
         dir.add(new JLabel(usuario));
         dir.add(btn("Sair", Color.WHITE, TEXTO, e -> {
@@ -234,7 +245,11 @@ public class Main extends JFrame {
                 link.setForeground(VERDE); link.setFont(new Font("Segoe UI", Font.BOLD, 13));
                 link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                 link.addMouseListener(new MouseAdapter() { public void mouseClicked(MouseEvent e) { animalAtual = a; atualizarTela(); } });
-                row.add(link);
+                JPanel acoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+                acoes.setOpaque(false);
+                acoes.add(link);
+                if (isEquipeOng()) acoes.add(menuAcoes(() -> editarAnimal(a), () -> removerAnimal(a)));
+                row.add(acoes);
             } else {
                 JLabel l = new JLabel(cols[i]); if (i == 1) l.setFont(new Font("Segoe UI", Font.BOLD, 13)); row.add(l);
             }
@@ -372,12 +387,12 @@ public class Main extends JFrame {
 
         corpo.add(Box.createVerticalStrut(12));
         corpo.add(subtitulo("Avaliação do perfil"));
-        AvaliacaoPerfil av = buscarAvaliacao(proc.getCpfAdotante());
+        ProcessoAdocao av = proc;
         if (av != null) {
-            corpo.add(linhaPar("Espaço adequado", av.espaco ? "Sim" : "Não", av.espaco ? VERDE : VERMELHO));
-            corpo.add(linhaPar("Tempo disponível", av.tempo ? "Sim" : "Não", av.tempo ? VERDE : VERMELHO));
-            corpo.add(linhaPar("Autorização do local", av.autorizacao, av.autorizacao.equals("Sim") ? VERDE : Color.ORANGE.darker()));
-            corpo.add(linhaPar("Família de acordo", av.familia ? "Sim" : "Não", av.familia ? VERDE : VERMELHO));
+            corpo.add(linhaPar("Espaço adequado", av.isEspaco() ? "Sim" : "Não", av.isEspaco() ? VERDE : VERMELHO));
+            corpo.add(linhaPar("Tempo disponível", av.isTempo() ? "Sim" : "Não", av.isTempo() ? VERDE : VERMELHO));
+            corpo.add(linhaPar("Autorização do local", av.getAutorizacao(), av.getAutorizacao().equals("Sim") ? VERDE : Color.ORANGE.darker()));
+            corpo.add(linhaPar("Família de acordo", av.isFamilia() ? "Sim" : "Não", av.isFamilia() ? VERDE : VERMELHO));
         }
         c.add(corpo, BorderLayout.NORTH);
 
@@ -395,12 +410,12 @@ public class Main extends JFrame {
         return c;
     }
 
-    private void aprovarAdocao(Animal animal, ProcessoAdocao proc, Adotante ad, AvaliacaoPerfil av) {
+    private void aprovarAdocao(Animal animal, ProcessoAdocao proc, Adotante ad, ProcessoAdocao av) {
         if (Animal.STATUS_ADOTADO.equals(animal.getStatusAdocao())) {
             JOptionPane.showMessageDialog(this, "Este animal já foi adotado!");
             return;
         }
-        if (av != null && (!av.espaco || !av.tempo || !av.familia || !av.autorizacao.equals("Sim"))) {
+        if (av != null && (!av.isEspaco() || !av.isTempo() || !av.isFamilia() || !av.getAutorizacao().equals("Sim"))) {
             if (JOptionPane.showConfirmDialog(this, "Há pendências no perfil do adotante. Aprovar mesmo assim?", "Confirmar", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
         }
         if (ad != null) ad.avaliarPerfil();
@@ -432,11 +447,11 @@ public class Main extends JFrame {
                 link.setForeground(VERDE);
                 link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                 link.addMouseListener(new MouseAdapter() { public void mouseClicked(MouseEvent e) { aba = "Animais"; animalAtual = a; atualizarTela(); } });
-                lista.add(linhaLista("Prontuário #" + pm.getId() + " — " + (a != null ? a.getNome() : pm.getIdAnimal()) + " | Vacinas: " + vacinas + " | Última: " + ult, link));
+                lista.add(linhaLista("Prontuário #" + pm.getId() + " — " + (a != null ? a.getNome() : pm.getIdAnimal()) + " | Vacinas: " + vacinas + " | Última: " + ult, acoesDaLista(link, () -> editarProntuario(pm), () -> excluirProntuario(pm))));
             }
         } else if (isAdot) {
             for (Adotante ad : listarAdotantes()) {
-                lista.add(linhaLista(ad.getNome() + " · CPF: " + ad.getCpf() + " · Endereço: " + ad.getEndereco(), null));
+                lista.add(linhaLista(ad.getNome() + " · CPF: " + ad.getCpf() + " · Endereço: " + ad.getEndereco(), acoesDaLista(null, () -> editarAdotante(ad), () -> excluirAdotante(ad))));
             }
         } else {
             for (ProcessoAdocao p : listarProcessos()) {
@@ -448,6 +463,133 @@ public class Main extends JFrame {
         }
         pag.add(lista);
         return pag;
+    }
+
+    private JButton menuAcoes(Runnable editar, Runnable excluir) {
+        JButton botao = new JButton("⋮");
+        botao.setFont(new Font("SansSerif", Font.BOLD, 20));
+        botao.setMargin(new Insets(0, 8, 0, 8));
+        botao.setBorderPainted(false);
+        botao.setContentAreaFilled(false);
+        botao.setFocusPainted(false);
+        botao.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        botao.setToolTipText("Ações");
+        botao.getAccessibleContext().setAccessibleName("Ações: editar ou excluir");
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem itemEditar = new JMenuItem("Editar");
+        JMenuItem itemExcluir = new JMenuItem("Excluir");
+        itemEditar.addActionListener(e -> editar.run());
+        itemExcluir.addActionListener(e -> excluir.run());
+        menu.add(itemEditar);
+        menu.add(itemExcluir);
+        botao.addActionListener(e -> menu.show(botao, 0, botao.getHeight()));
+        return botao;
+    }
+
+    private JPanel acoesDaLista(JComponent link, Runnable editar, Runnable excluir) {
+        JPanel acoes = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        acoes.setOpaque(false);
+        if (link != null) acoes.add(link);
+        if (isEquipeOng()) acoes.add(menuAcoes(editar, excluir));
+        return acoes;
+    }
+
+    private void editarAnimal(Animal animal) {
+        if (!isEquipeOng()) return;
+        JTextField nome = new JTextField(animal.getNome());
+        JTextField especie = new JTextField(animal.getEspecie());
+        JTextField idade = new JTextField(String.valueOf(animal.getIdade()));
+        if (JOptionPane.showConfirmDialog(this, new Object[]{"Nome:", nome, "Espécie / Raça:", especie, "Idade (anos):", idade},
+                "Editar animal", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        try {
+            if (nome.getText().isBlank() || especie.getText().isBlank()) throw new IllegalArgumentException("Informe nome e espécie.");
+            Animal atualizado = new Animal(animal.getId(), nome.getText().trim(), especie.getText().trim(), Integer.parseInt(idade.getText().trim()));
+            atualizado.editar(db);
+            atualizarTela();
+        } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Erro: " + ex.getMessage()); }
+    }
+
+    private void editarAdotante(Adotante adotante) {
+        if (!isEquipeOng()) return;
+        JTextField nome = new JTextField(adotante.getNome());
+        JTextField endereco = new JTextField(adotante.getEndereco());
+        if (JOptionPane.showConfirmDialog(this, new Object[]{"CPF: " + adotante.getCpf(), "Nome:", nome, "Endereço:", endereco},
+                "Editar adotante", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        try {
+            if (!isNomeValido(nome.getText()) || endereco.getText().isBlank()) throw new IllegalArgumentException("Informe nome válido e endereço.");
+            new Adotante(adotante.getCpf(), nome.getText().trim(), endereco.getText().trim(), adotante.getSenha()).editar(db);
+            atualizarTela();
+        } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Erro: " + ex.getMessage()); }
+    }
+
+    private void excluirAdotante(Adotante adotante) {
+        if (!isEquipeOng()) return;
+        if (JOptionPane.showConfirmDialog(this, "Excluir o cadastro de " + adotante.getNome() + "?", "Excluir adotante",
+                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        try {
+            for (ProcessoAdocao processo : listarProcessos()) {
+                if (processo.getCpfAdotante().equals(adotante.getCpf())) {
+                    JOptionPane.showMessageDialog(this, "Não é possível excluir este adotante porque há pedidos de adoção vinculados ao cadastro.");
+                    return;
+                }
+            }
+            Adotante.remover(db, adotante.getCpf());
+            atualizarTela();
+        } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Erro: " + ex.getMessage()); }
+    }
+
+    private void editarProntuario(ProntuarioMedico prontuario) {
+        if (!isEquipeOng()) return;
+        JPanel campos = new JPanel();
+        campos.setLayout(new BoxLayout(campos, BoxLayout.Y_AXIS));
+        campos.add(new JLabel("Vacinas (uma por linha):"));
+        JTextArea vacinas = new JTextArea(String.join("\n", prontuario.getVacinas()), 4, 35);
+        campos.add(new JScrollPane(vacinas));
+        java.util.List<JTextField> diagnosticos = new java.util.ArrayList<>();
+        java.util.List<JTextField> prescricoes = new java.util.ArrayList<>();
+        for (ConsultaVeterinaria consulta : prontuario.getConsultas()) {
+            campos.add(new JLabel("Consulta " + consulta.getData().format(DATA_BR) + " — " + consulta.getCrmVeterinario()));
+            JTextField diagnostico = new JTextField(consulta.getDiagnostico());
+            JTextField prescricao = new JTextField(consulta.getPrescricao());
+            diagnosticos.add(diagnostico);
+            prescricoes.add(prescricao);
+            campos.add(new JLabel("Diagnóstico:")); campos.add(diagnostico);
+            campos.add(new JLabel("Prescrição:")); campos.add(prescricao);
+        }
+        JScrollPane scroll = new JScrollPane(campos);
+        scroll.setPreferredSize(new Dimension(450, 350));
+        if (JOptionPane.showConfirmDialog(this, scroll, "Editar prontuário #" + prontuario.getId(),
+                JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) return;
+        try {
+            for (int i = 0; i < diagnosticos.size(); i++) {
+                prontuario.getConsultas().get(i).setDiagnostico(diagnosticos.get(i).getText().trim());
+                prontuario.getConsultas().get(i).setPrescricao(prescricoes.get(i).getText().trim());
+            }
+            java.util.List<String> novasVacinas = new java.util.ArrayList<>();
+            for (String vacina : vacinas.getText().split("\\R")) if (!vacina.isBlank()) novasVacinas.add(vacina.trim());
+            prontuario.editar(db, novasVacinas);
+            atualizarTela();
+        } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Erro: " + ex.getMessage()); }
+    }
+
+    private void excluirProntuario(ProntuarioMedico prontuario) {
+        if (!isEquipeOng()) return;
+        if (JOptionPane.showConfirmDialog(this, "Excluir o prontuário #" + prontuario.getId()
+                + "? Todas as vacinas e consultas deste prontuário serão apagadas. O animal será mantido.",
+                "Excluir prontuário", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        try {
+            ProntuarioMedico.remover(db, prontuario.getId());
+            atualizarTela();
+        } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Erro: " + ex.getMessage()); }
+    }
+
+    private ProntuarioMedico obterOuCriarProntuario(int idAnimal) {
+        ProntuarioMedico prontuario = buscarProntuario(idAnimal);
+        if (prontuario == null) {
+            ProntuarioMedico.cadastrar(db, idAnimal);
+            prontuario = buscarProntuario(idAnimal);
+        }
+        return prontuario;
     }
 
     private JPanel linhaLista(String texto, JComponent direita) {
@@ -471,10 +613,9 @@ public class Main extends JFrame {
     }
 
     private void cadastrarEquipe() {
-        JComboBox<String> tipo = new JComboBox<>(new String[]{"Responsável ONG", "Veterinário"});
         JTextField nome = new JTextField(), login = new JTextField(), cargoEsp = new JTextField();
         JPasswordField senha = new JPasswordField();
-        Object[] campos = {"Função:", tipo, "Nome (apenas letras):", nome, "E-mail (Admin) ou CRMV (Vet):", login, "Cargo ou Especialidade:", cargoEsp, "Senha (mín. 4):", senha};
+        Object[] campos = {"Nome (apenas letras):", nome, "E-mail (Responsável) ou CRMV completo (Veterinário):", login, "Cargo ou Especialidade:", cargoEsp, "Senha (mín. 4):", senha};
 
         if (JOptionPane.showConfirmDialog(this, campos, "Novo Membro da Equipe", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             if (!isNomeValido(nome.getText()) || login.getText().isBlank() || senha.getPassword().length < 4) {
@@ -482,7 +623,7 @@ public class Main extends JFrame {
                 return;
             }
             try {
-                if (tipo.getSelectedIndex() == 0) {
+                if (!Veterinario.isLoginCrmv(login.getText())) {
                     String cargo = cargoEsp.getText().isBlank() ? "Gestor(a)" : cargoEsp.getText().trim();
                     salvarOngBanco(new ResponsavelOng(login.getText().trim(), nome.getText().trim(), cargo, new String(senha.getPassword())));
                 } else {
@@ -508,23 +649,24 @@ public class Main extends JFrame {
     }
 
     private void solicitarAdocao(Animal animal, boolean peloAdotante) {
-        JTextField cpf = new JTextField(), nome = new JTextField(), end = new JTextField();
+        JTextField cpf = new JTextField();
         JComboBox<String> esp = new JComboBox<>(new String[]{"Sim", "Não"}), tmp = new JComboBox<>(new String[]{"Sim", "Não"});
         JComboBox<String> aut = new JComboBox<>(new String[]{"Sim", "Pendente", "Não"}), fam = new JComboBox<>(new String[]{"Sim", "Não"});
 
         Object[] campos = peloAdotante
                 ? new Object[]{"Possui espaço adequado?", esp, "Tem tempo disponível?", tmp, "Autorização do local:", aut, "Família de acordo?", fam}
-                : new Object[]{"CPF (11 números):", cpf, "Nome (se novo):", nome, "Endereço (se novo):", end, "Espaço adequado?", esp, "Tempo disponível?", tmp, "Autorização do local:", aut, "Família de acordo?", fam};
+                : new Object[]{"CPF do adotante já cadastrado (11 números):", cpf, "Espaço adequado?", esp, "Tempo disponível?", tmp, "Autorização do local:", aut, "Família de acordo?", fam};
 
         if (JOptionPane.showConfirmDialog(this, campos, "Solicitar adoção - " + animal.getNome(), JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             String cpfFinal = peloAdotante ? adotanteLogado.getCpf() : cpf.getText().trim();
             if (!ProcessoAdocao.isCpfValido(cpfFinal)) { JOptionPane.showMessageDialog(this, "CPF inválido!"); return; }
-            if (!peloAdotante && buscarAdotante(cpfFinal) == null) {
-                if (!isNomeValido(nome.getText()) || end.getText().isBlank()) { JOptionPane.showMessageDialog(this, "Informe nome válido (sem números) e endereço."); return; }
-                salvarAdotanteBanco(new Adotante(cpfFinal, nome.getText().trim(), end.getText().trim(), "1234"));
+            if (buscarAdotante(cpfFinal) == null) {
+                JOptionPane.showMessageDialog(this, "Adotante não cadastrado. Faça o cadastro com uma senha escolhida antes de registrar o pedido.");
+                return;
             }
-            AvaliacaoPerfil av = new AvaliacaoPerfil(esp.getSelectedItem().equals("Sim"), tmp.getSelectedItem().equals("Sim"), (String) aut.getSelectedItem(), fam.getSelectedItem().equals("Sim"));
-            solicitarAdocaoBanco(animal, cpfFinal, av);
+            ProcessoAdocao av = new ProcessoAdocao(0, cpfFinal, animal.getId());
+            av.setAvaliacao(esp.getSelectedItem().equals("Sim"), tmp.getSelectedItem().equals("Sim"), (String) aut.getSelectedItem(), fam.getSelectedItem().equals("Sim"));
+            solicitarAdocaoBanco(animal, av);
             atualizarTela();
         }
     }
@@ -547,11 +689,11 @@ public class Main extends JFrame {
         JTextField diag = new JTextField(), presc = new JTextField();
         if (JOptionPane.showConfirmDialog(this, new Object[]{"Veterinário: " + vetLogado.getNome(), "Diagnóstico:", diag, "Prescrição:", presc}, "Nova consulta", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             try {
-                ConsultaVeterinaria c = vetLogado.realizarConsulta(animal);
+                ConsultaVeterinaria c = vetLogado.realizarConsulta(obterOuCriarProntuario(animal.getId()));
                 c.setDiagnostico(diag.getText());
                 vetLogado.prescrever(c, presc.getText());
                 c.registrar();
-                salvarConsultaBanco(animal.getId(), c);
+                salvarConsultaBanco(c);
                 atualizarTela();
             } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Erro: " + ex.getMessage()); }
         }
@@ -641,33 +783,60 @@ public class Main extends JFrame {
         }
     }
 
-    private ResponsavelOng autenticarOngBanco(String email, String senha) { return null; }
-    private Veterinario autenticarVetBanco(String crmv, String senha) { return null; }
-    private Adotante autenticarAdotanteBanco(String cpf, String senha) { return null; }
+    private ResponsavelOng autenticarOngBanco(String email, String senha) {
+        ResponsavelOng r = ResponsavelOng.buscarPorEmail(db, email);
+        return r != null && r.login(email, senha) ? r : null;
+    }
 
-    private void salvarOngBanco(ResponsavelOng r) {}
-    private void salvarVetBanco(Veterinario v) {}
-    private void salvarAdotanteBanco(Adotante a) {}
-    private void salvarAnimalBanco(String nome, String especie, int idade) {}
-    private void removerAnimalBanco(int idAnimal) {}
-    private void salvarVacinaBanco(int idAnimal, String vacina) {}
-    private void salvarConsultaBanco(int idAnimal, ConsultaVeterinaria consulta) {}
-    private void solicitarAdocaoBanco(Animal animal, String cpfAdotante, AvaliacaoPerfil av) {}
-    private void aprovarProcessoBanco(ProcessoAdocao proc, Animal animal) {}
-    private void recusarProcessoBanco(ProcessoAdocao proc, Animal animal) {}
+    private Veterinario autenticarVetBanco(String crmv, String senha) {
+        return Veterinario.autenticar(db, crmv, senha);
+    }
 
-    private List<Animal> listarAnimais() { return Collections.emptyList(); }
-    private List<ProntuarioMedico> listarProntuarios() { return Collections.emptyList(); }
-    private List<Adotante> listarAdotantes() { return Collections.emptyList(); }
-    private List<ProcessoAdocao> listarProcessos() { return Collections.emptyList(); }
+    private Adotante autenticarAdotanteBanco(String cpf, String senha) {
+        Adotante a = Adotante.buscarPorCpf(db, cpf);
+        return a != null && a.login(cpf, senha) ? a : null;
+    }
 
-    private Animal buscarAnimal(int id) { return null; }
-    private ProntuarioMedico buscarProntuario(int idAnimal) { return null; }
-    private Adotante buscarAdotante(String cpf) { return null; }
-    private ProcessoAdocao buscarProcessoAnimal(int idAnimal) { return null; }
-    private AvaliacaoPerfil buscarAvaliacao(String cpfAdotante) { return null; }
+    private void salvarOngBanco(ResponsavelOng r) { r.cadastrar(db); }
+    private void salvarVetBanco(Veterinario v) { v.cadastrar(db); }
+    private void salvarAdotanteBanco(Adotante a) { a.cadastrar(db); }
+    private void salvarAnimalBanco(String nome, String especie, int idade) { new Animal(0, nome, especie, idade).cadastrar(db); }
+    private void removerAnimalBanco(int idAnimal) { Animal.remover(db, idAnimal); }
+    private void salvarVacinaBanco(int idAnimal, String vacina) { obterOuCriarProntuario(idAnimal).salvarVacina(db, vacina); }
+    private void salvarConsultaBanco(ConsultaVeterinaria consulta) { consulta.cadastrar(db); }
+
+    private void solicitarAdocaoBanco(Animal animal, ProcessoAdocao pedido) {
+        pedido.cadastrar(db);
+        animal.atualizarStatus("EM_PROCESSO");
+    }
+
+    private void aprovarProcessoBanco(ProcessoAdocao proc, Animal animal) {
+        proc.finalizar(db, true);
+        animal.atualizarStatus(Animal.STATUS_ADOTADO);
+    }
+
+    private void recusarProcessoBanco(ProcessoAdocao proc, Animal animal) {
+        proc.finalizar(db, false);
+        animal.atualizarStatus(Animal.STATUS_DISPONIVEL);
+    }
+
+    private List<Animal> listarAnimais() { return Animal.listar(db); }
+    private List<ProntuarioMedico> listarProntuarios() { return ProntuarioMedico.listar(db); }
+    private List<Adotante> listarAdotantes() { return Adotante.listar(db); }
+    private List<ProcessoAdocao> listarProcessos() { return ProcessoAdocao.listar(db); }
+
+    private Animal buscarAnimal(int id) { return Animal.buscarPorId(db, id); }
+    private ProntuarioMedico buscarProntuario(int idAnimal) { return ProntuarioMedico.buscarPorAnimal(db, idAnimal); }
+    private Adotante buscarAdotante(String cpf) { return Adotante.buscarPorCpf(db, cpf); }
+    private ProcessoAdocao buscarProcessoAnimal(int idAnimal) { return ProcessoAdocao.buscarPorAnimal(db, idAnimal); }
 
     public static void main(String[] args) {
+        Thread.setDefaultUncaughtExceptionHandler((thread, erro) -> {
+            erro.printStackTrace();
+            Runnable mostrar = () -> JOptionPane.showMessageDialog(null, erro.getMessage(), "Erro no sistema", JOptionPane.ERROR_MESSAGE);
+            if (SwingUtilities.isEventDispatchThread()) mostrar.run();
+            else SwingUtilities.invokeLater(mostrar);
+        });
         SwingUtilities.invokeLater(() -> new Main().setVisible(true));
     }
 }

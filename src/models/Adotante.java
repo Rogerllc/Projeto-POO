@@ -1,3 +1,10 @@
+package models;
+
+import database.Banco;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 public class Adotante {
     private String cpf;
     private String nome;
@@ -87,4 +94,40 @@ public class Adotante {
     public String toString() {
         return "Adotante: " + this.nome + " | CPF: " + this.cpf + " | Aprovado: " + this.aprovado;
     }
+
+    public boolean cadastrar(Banco db) {
+        if (!avaliarPerfil() || senha == null || senha.length() < 4) {
+            throw new IllegalArgumentException("Informe CPF, nome, endereço e senha de pelo menos 4 caracteres.");
+        }
+        return db.queryUpdate(String.format("INSERT INTO adotantes(cpf, nome, endereco, senha) VALUES ('%s', '%s', '%s', '%s')",
+                cpf.replace("'", "''"), nome.replace("'", "''"), endereco.replace("'", "''"), senha.replace("'", "''"))) > 0;
+    }
+
+    public boolean editar(Banco db) {
+        return db.queryUpdate(String.format("UPDATE adotantes SET nome = '%s', endereco = '%s', senha = '%s' WHERE cpf = '%s'",
+                nome.replace("'", "''"), endereco.replace("'", "''"), senha.replace("'", "''"), cpf.replace("'", "''"))) > 0;
+    }
+
+    public static boolean remover(Banco db, String cpf) {
+        return db.queryUpdate(String.format("DELETE FROM adotantes WHERE cpf = '%s'", cpf.replace("'", "''"))) > 0;
+    }
+
+    private static Adotante ler(ResultSet rs) throws SQLException {
+        return new Adotante(rs.getString("cpf"), rs.getString("nome"), rs.getString("endereco"), rs.getString("senha"));
+    }
+
+    public static Adotante buscarPorCpf(Banco db, String cpf) {
+        try (ResultSet rs = db.querySearch(String.format("SELECT * FROM adotantes WHERE cpf = '%s'", cpf.replace("'", "''")))) {
+            return rs.next() ? ler(rs) : null;
+        } catch (SQLException e) { throw new IllegalStateException(e); }
+    }
+
+    public static List<Adotante> listar(Banco db) {
+        List<Adotante> adotantes = new ArrayList<>();
+        try (ResultSet rs = db.querySearch("SELECT * FROM adotantes ORDER BY nome")) {
+            while (rs.next()) adotantes.add(ler(rs));
+        } catch (SQLException e) { throw new IllegalStateException(e); }
+        return adotantes;
+    }
+
 }
